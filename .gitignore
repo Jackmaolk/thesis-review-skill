@@ -27,4 +27,4 @@ live_*.json
 
 # ç¼–è¾‘å™¨
 .vscode/
-.idea/
+.idea/\n# ÍÑÃôÓ³Éä£¨º¬ÕæÊµĞÕÃû£¬¾ø²»Ìá½»£©\n.sanitize.json
