@@ -10,7 +10,7 @@ venv/
 .DS_Store
 Thumbs.db
 
-# 真实论文与学生数据 —— 永远不要提交
+# 真实论文与学生数据 -- 永远不要提交
 02_批注样本/
 03_待审/
 04_输出/
@@ -21,10 +21,13 @@ rules.yaml
 *.docx
 *.doc
 
+# 脱敏映射（含真实姓名，绝不提交）
+.sanitize.json
+
 # 本地配置
 plan.json
 live_*.json
 
 # 编辑器
 .vscode/
-.idea/\n# ����ӳ�䣨����ʵ�����������ύ��\n.sanitize.json
+.idea/
