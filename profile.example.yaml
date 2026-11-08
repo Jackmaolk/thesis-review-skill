@@ -1,0 +1,53 @@
+name: "示例导师"
+samples: 162
+files: 16
+length:
+  mean: 19.6
+  min: 1
+  max: 129
+  p25: 7
+  p50: 12
+  p90: 42
+tone:
+  imperative_pct: 69.8
+  question_pct: 2.5
+  declarative_pct: 27.8
+  strength: 4
+phrases:
+  reject:
+    - "都改"
+    - "全改"
+    - "重新写"
+    - "重写"
+    - "全错"
+    - "不合格"
+  complain:
+    - "太少"
+    - "看不清"
+    - "太多"
+    - "没有"
+    - "太少了"
+    - "不行"
+  reference:
+    - "参考论文"
+    - "看群里"
+    - "看群消息"
+    - "参考这个"
+  minimal:
+    - "改"
+    - "单独一页"
+    - "断表"
+    - "太多了"
+    - "换位置"
+    - "同上"
+    - "图呢"
+habits:
+  no_explain: true
+  minimal_pct: 13.0
+  merge_same_para: true
+  max_per_para: 3
+rules:
+  target_count: "30-35"
+  cover_every_chapter: true
+  no_stat_phrasing: true
+  evidence_required: true

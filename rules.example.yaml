@@ -1,0 +1,45 @@
+# 示例大学 2026 版毕业设计（论文）格式规则
+# 来源：2026版论文格式新版.docx
+meta:
+  school: "示例大学"
+  version: "2026版"
+  source: "2026版论文格式新版.docx"
+
+kinds:
+  h1:
+    name: "章标题"
+    font: "黑体"
+    size: 15
+    bold: false
+    severity: A
+  h2:
+    name: "二级标题"
+    font: "黑体"
+    size: 14
+    bold: false
+    severity: A
+  h3:
+    name: "三级标题"
+    font: "黑体"
+    size: 12
+    bold: false
+    severity: A
+  body:
+    name: "正文"
+    font: "宋体"
+    size: 12
+    bold: false
+    firstLine: "480"
+    severity: A
+  caption:
+    name: "图表题注"
+    font: "宋体"
+    size: 10.5
+    bold: false
+    severity: A
+  ref:
+    name: "参考文献条目"
+    font: "宋体"
+    size: 10.5
+    bold: false
+    severity: A

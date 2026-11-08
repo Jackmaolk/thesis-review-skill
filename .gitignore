@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# 运行时产物
+*.log
+.DS_Store
+Thumbs.db
+
+# 真实论文与学生数据 —— 永远不要提交
+02_批注样本/
+03_待审/
+04_输出/
+01_范文/
+_批注备份/
+profile.yaml
+rules.yaml
+*.docx
+*.doc
+
+# 本地配置
+plan.json
+live_*.json
+
+# 编辑器
+.vscode/
+.idea/
