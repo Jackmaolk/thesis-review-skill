@@ -72,8 +72,8 @@ def build_targets(docx, issues):
             if not snip:
                 # 重复段落：用整段（最多 60 字）作片段，靠 nth 精确定位
                 snip = src.strip()[:60]
-                problems.append('#%d para=%s 段落内容重复，用 nth 定位（第 %d 次）'
-                                % (n, para, 0))
+                problems.append('#%d para=%s 段落无唯一片段，改用整段 + nth 定位'
+                                % (n, para))
             nth = prefix.get(para, '').count(snip) + 1
             out.append({'find': snip, 'text': text, 'para': para,
                         'nth': nth, 'origin': src[:40]})
