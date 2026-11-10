@@ -4,15 +4,16 @@ test_pipeline.py —— 端到端测试
 验证：风格学习 → 事实核查 → 批注写入 → 完整性校验
 """
 import sys, os, json, zipfile, re, shutil, tempfile
+import gc
 from lxml import etree
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-for sub in ('scripts', 'tools'):
-    cand = os.path.join(ROOT, sub)
-    if os.path.isdir(cand):
-        sys.path.insert(0, cand)
-        break
+# 兼容三种布局：<root>/scripts、<root>/tools、脚本就在 <root>
+for cand in (os.path.join(ROOT, 'scripts'), os.path.join(ROOT, 'tools'), ROOT):
+    if os.path.isdir(cand) and any(f.endswith('.py') for f in os.listdir(cand)):
+        if cand not in sys.path:
+            sys.path.insert(0, cand)
 
 W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
 def q(t): return '{%s}%s' % (W, t.split(':')[1])
@@ -170,11 +171,116 @@ def make_sample_paper():
     doc.save(p)
     return p
 
+
+
+# ── 5 正则健壮性（第10章 / [1,2] / 图1） ──
+def test_regex_robustness():
+    from fact_check import CH_RE, CITE_RE, CAP_RE
+    check('章节正则支持两位数', CH_RE.match('第10章总结') is not None,
+          str(CH_RE.match('第12章 展望').group(1) if CH_RE.match('第12章 展望') else 'None'))
+    check('引用识别 [1,2]', len(CITE_RE.findall('文献[1,2]')) == 1)
+    check('引用识别 [1-3]', len(CITE_RE.findall('文献[1-3]')) == 1)
+    check('引用识别全角', len(CITE_RE.findall('文献［1］')) == 1)
+    check('题注识别 图1', CAP_RE.match('图1 系统架构') is not None)
+    check('题注识别 图1.1', CAP_RE.match('图1.1 系统架构') is not None)
+
+# ── 6 唯一片段 + TOC 消歧 ──
+def test_unique_snippet():
+    from wps_center import unique_snippet
+    full = '第5章 系统实现\n正文内容\n第5章 系统实现\n这里是第五章的正文段落内容'
+    snip = unique_snippet('这里是第五章的正文段落内容', full)
+    check('长段落能取到唯一片段', snip is not None, repr(snip))
+    check('唯一片段确实唯一', full.count(snip) == 1)
+    short = unique_snippet('第5章 系统实现', full)
+    check('短标题识别为不唯一', short is None, repr(short))
+
+# ── 7 批注体检：能查出锚点不一致 ──
+def test_audit_detects_broken():
+    from audit_comments import audit
+    p = make_sample_paper()
+    plan = {'author': 'T', 'comments': [{'para': 2, 'text': '正常批注'}]}
+    from wps_apply import apply
+    apply(p, plan, 'T')
+    r = audit(p, 'T')
+    check('体检通过正常文件', not r['problems'], str(r['problems']))
+
+    # 人为制造孤儿锚点
+    import shutil
+    items = {}
+    z = zipfile.ZipFile(p)
+    for n in z.namelist():
+        items[n] = z.read(n)
+    z.close()
+    d = etree.fromstring(items['word/document.xml'])
+    body = d.find(q('w:body'))
+    rs = etree.Element(q('w:commentRangeStart')); rs.set(q('w:id'), '999')
+    body[1].insert(0, rs)
+    items['word/document.xml'] = etree.tostring(d, xml_declaration=True, encoding='UTF-8')
+    with zipfile.ZipFile(p, 'w', zipfile.ZIP_DEFLATED) as o:
+        for k, v in items.items():
+            o.writestr(k, v)
+    r2 = audit(p, 'T')
+    check('能查出孤儿锚点', any('孤儿' in x for x in r2['problems']), str(r2['problems'])[:70])
+    gc.collect()
+    os.unlink(p)
+
+# ── 8 AI 痕迹不误伤正常术语 ──
+def test_audit_no_false_positive():
+    from audit_comments import audit
+    p = make_sample_paper()
+    plan = {'author': 'T', 'comments': [
+        {'para': 2, 'text': '数据模型设计不够细，补字段说明'},
+        {'para': 3, 'text': '模型层缺少校验'},
+    ]}
+    from wps_apply import apply
+    apply(p, plan, 'T')
+    r = audit(p, 'T')
+    check('「数据模型」不误报 AI 痕迹', not r['problems'], str(r['problems'])[:80])
+    gc.collect()
+    os.unlink(p)
+
+# ── 9 fact_check 不锁文件 ──
+def test_no_file_lock():
+    from fact_check import analyze, close_analysis
+    p = make_sample_paper()
+    R, _, _, _ = analyze(p)
+    close_analysis(R)
+    ok = True
+    try:
+        os.unlink(p)
+    except Exception as e:
+        ok = False
+        err = str(e)[:50]
+    check('close_analysis 后文件可删除', ok, '' if ok else err)
+
+# ── 10 para 定位优先级 ──
+def test_para_resolution():
+    from wps_center import build_targets
+    p = make_sample_paper()
+    # 造一个目录+正文重名的场景
+    from docx import Document
+    doc = Document()
+    # 索引: 0=目录 1=第1章(目录) 2=第2章(目录) 3=第1章(正文) 4=正文长段 5=第2章(正文) 6=设计长段
+    for s in ['目录', '第1章 绪论', '第2章 设计', '第1章 绪论',
+              '正文' * 30, '第2章 设计', '设计内容' * 30]:
+        doc.add_paragraph(s)
+    doc.save(p)
+    issues = [{'para': 3, 'text': 'A'}, {'para': 6, 'text': 'B'}]
+    targets, probs = build_targets(p, issues)
+    check('para 能解析出目标', len(targets) == 2, str(probs))
+    check('重名标题取第2次出现',
+          any(t.get('nth', 1) == 2 for t in targets),
+          str([(t['para'], t.get('nth')) for t in targets]))
+    gc.collect()
+    os.unlink(p)
+
 if __name__ == '__main__':
     print("=" * 60)
     print("导师审稿技能 端到端测试")
     print("=" * 60)
-    for fn in (test_learn_style, test_fact_check, test_apply, test_backup):
+    for fn in (test_learn_style, test_fact_check, test_apply, test_backup,
+               test_regex_robustness, test_unique_snippet, test_audit_detects_broken,
+               test_audit_no_false_positive, test_no_file_lock, test_para_resolution):
         print("\n[%s]" % fn.__name__)
         try:
             fn()

@@ -1,32 +1,106 @@
 # -*- coding: utf-8 -*-
-import sys, json, os
-sys.path.insert(0, os.path.dirname(__file__))
-import yaml
-from format_check import check
-from docx_comment import add_comments
+"""
+review.py -- 一条命令跑完整流程
 
-src = sys.argv[1]; rules_path = sys.argv[2]; dst = sys.argv[3]
-author = sys.argv[4] if len(sys.argv) > 4 else '导师'
-initials = sys.argv[5] if len(sys.argv) > 5 else 'DS'
-rules = yaml.safe_load(open(rules_path, encoding='utf-8'))
-paras, issues = check(src, rules)
+用法：
+  python review.py plan.json                # 备份 -> 核查 -> 写批注 -> 体检
+  python review.py plan.json --dry-run      # 只验证定位，不写
+  python review.py plan.json --check-only   # 只做备份+核查+体检
 
-# 内容层：示例内容审查（真实系统里由模型产出，这里用规则兜底做端到端验证）
-content = [
- {'para': 2, 'find': '能够满足所有用户需求',
-  'text': '【内容·表述】“满足所有用户需求”过于绝对，且未给出依据。建议改为具体可达成的指标，如“覆盖学生信息增删改查、课程分配、成绩录入三类核心业务”，并补充第4章测试数据支撑。'},
- {'para': 2, 'find': '功能强大，用户体验良好',
-  'text': '【内容·空泛】此处为结论性评价，正文尚无支撑。建议删除或后移至第5章，并用测试结果或用户反馈佐证。'},
- {'para': 13, 'find': '学生表、课程表、成绩表',
-  'text': '【内容·待核实】正文列出的三张表与第2章所述“角色权限”无对应关系。若系统含角色管理，请补充角色表、用户角色关联表及其字段说明；若无，请说明权限控制的实现方式。'},
- {'para': 17, 'find': '如图所示',
-  'text': '【内容·图文】此处“如图所示”未标注图号。正文引用图应写作“如图3-1所示”，且图3-1的题注需与本段描述一致。'},
- {'para': 21, 'find': '系统运行正常，没有发现明显问题',
-  'text': '【内容·测试】仅有结论无过程。第4章应给出测试环境、测试用例表（编号/输入/预期/实际/结论）、边界与异常用例，并至少覆盖登录失败、越权访问两类场景。'},
-]
-for c in content:
-    c['severity'] = 'B'
+plan.json 见 wps_center.py 说明。
+"""
+import sys, os, json, subprocess
 
-allc = issues + content
-res = add_comments(src, dst, allc, author=author, initials=initials)
-print(json.dumps({'added': res['ok'], 'skipped': res['skipped'], 'dst': dst}, ensure_ascii=False, indent=1))
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+
+from backup import backup, verify
+from fact_check import analyze, close_analysis, public_view
+from audit_comments import audit
+
+
+def step(n, title):
+    print()
+    print('=' * 56)
+    print('%s %s' % (n, title))
+    print('=' * 56)
+
+
+def main():
+    args = [a for a in sys.argv[1:] if not a.startswith('--')]
+    flags = [a for a in sys.argv[1:] if a.startswith('--')]
+    if not args:
+        print(__doc__)
+        return 1
+
+    cfg = json.load(open(args[0], encoding='utf-8'))
+    docx = cfg.get('docx')
+    if not docx or not os.path.exists(docx):
+        print('文档不存在:', docx)
+        return 1
+    author = cfg.get('author') or ''
+    if not author:
+        print('错误: plan.json 必须提供 author')
+        return 1
+
+    # 1 备份
+    step('1/4', '备份 + 完整性校验')
+    dst, h, ok, msg = backup(docx, 'review')
+    print('  备份:', os.path.basename(dst))
+    print('  SHA :', h)
+    print('  校验:', ('OK ' if ok else 'FAIL ') + msg)
+    if not ok:
+        return 1
+
+    # 2 事实核查
+    step('2/4', '事实核查（客观数据）')
+    R, _, _, _ = analyze(docx)
+    v = public_view(R)
+    close_analysis(R)
+    for k in ('body_start', 'abstract_words', 'conclusion_words',
+              'figure_count', 'table_count', 'citation_total'):
+        print('  %-18s %s' % (k, v.get(k)))
+    print('  word_count        %s' % v.get('word_count'))
+    print('  citations         %s' % v.get('citations'))
+    if v.get('chapters_without_break'):
+        print('  章前缺分页        %s' % v['chapters_without_break'])
+    if v.get('captions_misplaced'):
+        print('  图注位置异常      %s' % v['captions_misplaced'])
+
+    if '--check-only' in flags:
+        step('3/4', '跳过写入（--check-only）')
+    else:
+        # 3 写批注
+        step('3/4', '写入批注')
+        cmd = [sys.executable, os.path.join(HERE, 'wps_center.py'), args[0]]
+        if '--dry-run' in flags:
+            cmd.append('--dry-run')
+        r = subprocess.run(cmd, capture_output=True, text=True,
+                           encoding='utf-8', errors='replace')
+        print(r.stdout.strip())
+        if r.stderr.strip():
+            print('STDERR:', r.stderr.strip()[-300:])
+        if r.returncode != 0:
+            print('  写入未全部成功，继续体检')
+
+    # 4 体检
+    step('4/4', '批注体检')
+    rep = audit(docx, author)
+    print('  批注数  =', rep['comments'])
+    if rep.get('anchors'):
+        a = rep['anchors']
+        print('  锚点    = start %d / end %d / ref %d'
+              % (a['start'], a['end'], a['reference']))
+    print('  作者    =', rep['authors'] or '无')
+    if rep.get('length'):
+        L = rep['length']
+        print('  长度    = 平均 %.1f 字 (%d-%d)' % (L['mean'], L['min'], L['max']))
+    print('  问题    =', rep['problems'] or 'none')
+    for w in rep['warnings']:
+        print('  提醒    =', w)
+
+    return 0 if not rep['problems'] else 1
+
+
+if __name__ == '__main__':
+    sys.exit(main())

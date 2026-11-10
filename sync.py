@@ -26,11 +26,15 @@ SANITIZE = load_sanitize()
 # 同步哪些文件
 PATTERNS = ['*.md', '*.yaml', '*.py']
 SKIP_DIRS = {'__pycache__', '.git', 'docs'}
+SKIP_PREFIX = ('scripts_backup', '_', '.')
+
+def _skip(d):
+    return d in SKIP_DIRS or d.startswith(SKIP_PREFIX)
 
 def walk(root):
     out = []
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+        dirnames[:] = [d for d in dirnames if not _skip(d)]
         for fn in filenames:
             if not fn.endswith(('.md', '.yaml', '.py')):
                 continue
